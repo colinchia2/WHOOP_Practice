@@ -13,16 +13,15 @@ Demonstrate ability to use **Snowflake**, **SQL**, and **Looker** with WHOOP-lik
 * Statistical modeling using **Window Functions**
 * Clean **Visualizations**, **Strategic** Analysis, and **Product** Feature Recommendations
 
-
 ### **TECHNICAL STACK:**
 * **Data Warehouse:** Snowflake
 * **Transformation:** SQL (Window Functions, Z-Score Normalization, Regression Analysis)
 * **BI & Visualization:** Google Looker Studio
 
 ### **DATA SOURCES:**
-* **FitBit Data:** Sleep and activity telemetry from 30 users.
+* **FitBit Data:** Sleep and activity wearable tracking from 30 users
     * [Source: Kaggle FitBit Dataset](https://www.kaggle.com/datasets/arashnic/fitbit?resource=download-directory)
-* **MIMIC-III Data:** Clinical blood collection database from Beth Israel Deaconess Medical Center.
+* **MIMIC-III Data:** Clinical blood collection database from Beth Israel Deaconess Medical Center ICU
     * [Source: PhysioNet MIMIC-III Demo](https://physionet.org/content/mimiciii-demo/1.4/)
 
 ---
