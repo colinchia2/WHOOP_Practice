@@ -1,6 +1,4 @@
 # WHOOP Practice
-
-### **Fitness & Health Tech Analytics**
 **Live Dashboard:** [View Interactive Report](https://lookerstudio.google.com/reporting/50997089-7ad1-4bc7-a9ba-6e5079ae0eb7/page/p_fuh1c2mt0d)
 
 ---
