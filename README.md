@@ -11,12 +11,13 @@ Demonstrate ability to use **Snowflake**, **SQL**, and **Looker** with WHOOP-lik
 * Advanced querying & table joins
 * Creating robust **VIEWS** and **CTEs**
 * Statistical modeling using **Window Functions**
+* **Strategic** Analysis and **Product** Feature Recommendations
+
 
 ### **TECHNICAL STACK:**
 * **Data Warehouse:** Snowflake
 * **Transformation:** SQL (Window Functions, Z-Score Normalization, Regression Analysis)
-* **BI & Visualization:** Looker Studio
-* **Strategic Recommendations:** Analysis and Product Feature Recommendations
+* **BI & Visualization:** Google Looker Studio
 
 ### **DATA SOURCES:**
 * **FitBit Data:** Sleep and activity telemetry from 30 users.
