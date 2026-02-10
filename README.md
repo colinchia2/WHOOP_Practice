@@ -10,13 +10,14 @@ WHOOP Practice - Sleep, Steps, Calories, and Blood Markers Analysis
 This project demonstrates the ability to leverage **Snowflake** and **Looker Studio** to transform complex data into actionable insights across Fitness & Health tracking and product growth.
 
 ### **PURPOSE:**
-Demonstrate ability to use Snowflake, SQL, and Looker with WHOOP-like data. Key technical implementations include:
+Demonstrate ability to use **Snowflake**, **SQL**, and **Looker** with WHOOP-like **fitness** and **health** data. Key technical implementations include:
 * Advanced querying & table joins
 * Creating robust **VIEWS** and **CTEs**
 * Statistical modeling using **Window Functions** ### **TECHNICAL STACK:**
 * **Data Warehouse:** Snowflake
 * **Transformation:** SQL (Window Functions, Z-Score Normalization, Regression Analysis)
 * **BI & Visualization:** Looker Studio
+* **Strategic Recommendations:** Analysis and Product Feature Recommendations
 
 ### **DATA SOURCES:**
 * **FitBit Data:** Sleep and activity telemetry from 30 users.
