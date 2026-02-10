@@ -8,7 +8,7 @@ WHOOP Practice - Sleep, Steps, Calories, and Blood Markers Analysis
 
 ### **PURPOSE:**
 Demonstrate ability to use **Snowflake**, **SQL**, and **Looker** with WHOOP-like **fitness** and **health** data. Key technical implementations include:
-* Advanced querying & table joins
+* Advanced **querying** & **table joins**
 * Creating robust **VIEWS** and **CTEs**
 * Statistical modeling using **Window Functions**
 * Clean **Visualizations**, **Strategic** Analysis, and **Product** Feature Recommendations
