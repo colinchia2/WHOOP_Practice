@@ -1,0 +1,340 @@
+/*******************************************************************************
+PROJECT: WHOOP Practice - Sleep, Steps, Calories, and Blood Markers Analysis
+PURPOSE: Demonstrate ability to use Snowflake, SQL, and Looker with WHOOP-like data
+I will make use of advanced querying, table joins, creating VIEWS, CTEs, and Window Functions 
+I have downloaded free FitBit data on sleep and steps from 30 random users, as well as
+a separate blood collection database with 100 patients from Beth Israel Deaconess Medical Center
+    FitBit Source: https://www.kaggle.com/datasets/arashnic/fitbit?resource=download-directory
+    MIMIC-III Source: https://physionet.org/content/mimiciii-demo/1.4/
+AUTHOR: Colin Chiapello
+DATE: 02-10-2026
+*******************************************************************************/
+
+-- 0. Select Correct Warehouse
+USE WAREHOUSE WHOOP_PRACTICE_WH;
+-- USE DATABASE WHOOP_HEALTH_DB;
+-- USE SCHEMA RAW_HEALTH_DATA;
+-- USE SCHEMA ANALYSIS_VIEWS;
+
+-- =============================================================================
+-- 1. FitBit Steps & Sleep Summary by User ID
+-- Purpose: Calculate avg baseline metrics for all FitBit users and store in
+--      a reference table
+-- SQL Logic: Advanced Querying - Join sleep and activity raw data on ID & Date
+-- =============================================================================
+
+CREATE OR REPLACE VIEW ANALYSIS_VIEWS.FITBIT_USER_SUMMARY AS
+SELECT 
+    COALESCE(s.ID, a.ID) AS User_ID,
+    
+    -- Sleep Avg Metrics
+    SUM(s.TOTALMINUTESASLEEP) / 60 AS Total_Sleep_Hours,
+    COUNT(s.TOTALMINUTESASLEEP) AS Days_With_Sleep_Data,
+    ROUND((SUM(s.TOTALMINUTESASLEEP)/60)/NULLIF(COUNT(s.TOTALMINUTESASLEEP), 0), 2) AS Avg_Hours_Slept,
+    
+    -- Activity Avg Metrics
+    SUM(a.TOTALSTEPS) AS Total_Steps,
+    COUNT(a.TOTALSTEPS) AS Days_With_Steps_Data,
+    ROUND(SUM(a.TOTALSTEPS) / NULLIF(COUNT(a.TOTALSTEPS), 0), 0) AS Avg_Steps_Per_Active_Day,
+
+    -- Calorie Metrics
+    SUM(a.CALORIES) AS Total_Calories_Burned,
+    COUNT(a.CALORIES) AS Days_With_Calories_Data,
+    ROUND(SUM(a.CALORIES)/NULLIF(COUNT(a.CALORIES), 0), 0) AS Avg_Daily_Calories_Burned,
+
+    -- Activity Metrics
+    SUM(a.VERYACTIVEMINUTES) AS Total_Very_Active_Minutes,
+    SUM(a.FAIRLYACTIVEMINUTES) AS Total_Fairly_Active_Minutes,
+    SUM(a.LIGHTLYACTIVEMINUTES) AS Total_Lightly_Active_Minutes,
+    SUM(a.SEDENTARYMINUTES) AS Total_Sedentary_Minutes,
+    COUNT(a.VERYACTIVEMINUTES) AS Days_With_Very,
+    COUNT(a.FAIRLYACTIVEMINUTES) AS Days_With_Fairly,
+    COUNT(a.LIGHTLYACTIVEMINUTES) AS Days_With_Lightly,
+    COUNT(a.SEDENTARYMINUTES) AS Days_Sedentary
+    
+FROM WHOOP_HEALTH_DB.RAW_HEALTH_DATA.FITBIT_SLEEP_RAW s
+FULL OUTER JOIN WHOOP_HEALTH_DB.RAW_HEALTH_DATA.FITBIT_ACTIVITY_RAW a 
+    ON s.ID = a.ID AND s.CORRECT_DATE = a.ACTIVITYDATE
+GROUP BY User_ID
+ORDER BY User_ID DESC;
+SELECT * FROM WHOOP_HEALTH_DB.ANALYSIS_VIEWS.FITBIT_USER_SUMMARY
+
+-- Create a Table to see what the overlap on feature usage is
+CREATE OR REPLACE VIEW ANALYSIS_VIEWS.FITBIT_FEATURE_USAGE AS                                    
+SELECT
+    User_ID,
+    Days_With_Sleep_Data,                                                                        
+    Days_With_Steps_Data,
+    ROUND(Days_With_Steps_Data / NULLIF(MAX(Days_With_Steps_Data) OVER (), 0) * 100, 1) AS PERC_OF_MAX_STEPS,
+    ROUND(Days_With_Sleep_Data / NULLIF(Days_With_Steps_Data, 0) * 100, 1) AS PERC_SLEEP_VS_STEPS,
+    CASE
+        WHEN Days_With_Sleep_Data > 0 AND Days_With_Steps_Data > 0 THEN 'Both'
+        WHEN Days_With_Sleep_Data > 0 THEN 'Sleep Only'
+        WHEN Days_With_Steps_Data > 0 THEN 'Steps Only'
+     END AS TRACKING_TYPE
+FROM ANALYSIS_VIEWS.FITBIT_USER_SUMMARY;
+SELECT * FROM WHOOP_HEALTH_DB.ANALYSIS_VIEWS.FITBIT_FEATURE_USAGE
+
+-- =============================================================================
+-- 2. FitBit Steps, Calories, and Sleep Time Series
+-- Purpose: Create time series view of daily health markers for Looker Studio dashboard
+--      This will be our main table in Looker so will add extra analysis in here
+-- SQL Logic: Outer Join disparate ID & date columns into a single CALENDAR_DATE, and
+--      combine all avaliable data for each given date
+-- Purpose: Calculate if today's effort / steps / sleep was different than the 
+--      last [x] days
+-- Goal: Demonstrate ability to use Window Functions
+-- =============================================================================
+
+CREATE OR REPLACE VIEW ANALYSIS_VIEWS.DAILY_USER_PERFORMANCE AS
+WITH temp_table AS (
+SELECT
+        COALESCE(s.ID, a.ID) AS USER_ID,
+        COALESCE(s.CORRECT_DATE, a.ACTIVITYDATE) AS CALENDAR_DATE,
+        DAYOFWEEK(COALESCE(s.CORRECT_DATE, a.ACTIVITYDATE)) AS WEEKDAY_NUMBER,
+        DAYNAME(COALESCE(s.CORRECT_DATE, a.ACTIVITYDATE)) AS WEEKDAY_NAME,
+
+        -- Sleep Data and Calc
+        s.TOTALMINUTESASLEEP,
+        s.TOTALMINUTESASLEEP/60 AS TOTALHOURSASLEEP,
+        s.TOTALTIMEINBED,
+        (s.TOTALTIMEINBED - s.TOTALMINUTESASLEEP) AS TOTALMINUTESAWAKE,
+        ROUND((s.TOTALMINUTESASLEEP / NULLIF(s.TOTALTIMEINBED, 0)) * 100, 1) AS SLEEP_EFFICIENCY_PCT,
+
+        -- Calories
+        a.CALORIES,
+
+        -- Steps and Effort Data
+        a.TOTALSTEPS,
+        a.VERYACTIVEMINUTES,
+        a.FAIRLYACTIVEMINUTES,
+        a.LIGHTLYACTIVEMINUTES,
+
+	-- Hard Work Pct
+        ZEROIFNULL(
+		a.VERYACTIVEMINUTES / NULLIF(a.VERYACTIVEMINUTES + a.FAIRLYACTIVEMINUTES + a.LIGHTLYACTIVEMINUTES, 0)
+		) * 100 AS HARD_WORK_PCT,
+
+        -- Goals
+        8 AS SLEEP_GOAL_HOURS,
+        7000 AS DAILY_STEP_GOAL,
+        95 AS SLEEP_EFF_GOAL,
+        10 AS HARD_WORK_EFF_GOAL,
+        1000 AS CAL_GOAL
+
+    FROM WHOOP_HEALTH_DB.RAW_HEALTH_DATA.FITBIT_SLEEP_RAW s
+    FULL OUTER JOIN WHOOP_HEALTH_DB.RAW_HEALTH_DATA.FITBIT_ACTIVITY_RAW a
+        ON s.ID = a.ID AND s.CORRECT_DATE = a.ACTIVITYDATE
+    WHERE COALESCE(s.CORRECT_DATE, a.ACTIVITYDATE) IS NOT NULL
+),
+rolling_stats AS (
+    SELECT
+        *,
+        -- Goal Diffs
+        ROUND((TOTALHOURSASLEEP - SLEEP_GOAL_HOURS) / SLEEP_GOAL_HOURS * 100, 1) AS SLEEP_GOAL_DIFF_PCT,
+        ROUND((TOTALSTEPS - DAILY_STEP_GOAL) / DAILY_STEP_GOAL * 100, 1) AS STEP_GOAL_DIFF_PCT,  
+        (SLEEP_EFFICIENCY_PCT - SLEEP_EFF_GOAL) AS SLEEP_EFF_GOAL_PCT_DIFF,
+        (HARD_WORK_PCT - HARD_WORK_EFF_GOAL) AS HARD_WORK_GOAL_PCT_DIFF,
+        (CALORIES - CAL_GOAL) AS CAL_GOAL_DIFF,
+
+	-- 7-Day Rolling Averages
+        AVG(TOTALHOURSASLEEP) OVER (
+            PARTITION BY USER_ID ORDER BY CALENDAR_DATE
+            RANGE BETWEEN INTERVAL '6 days' PRECEDING AND CURRENT ROW
+        ) AS SLEEP_7DAY_ROLLING_AVG,
+        AVG(TOTALSTEPS) OVER (
+            PARTITION BY USER_ID ORDER BY CALENDAR_DATE
+            RANGE BETWEEN INTERVAL '6 days' PRECEDING AND CURRENT ROW
+        ) AS STEPS_7DAY_ROLLING_AVG,
+        AVG(CALORIES) OVER (
+            PARTITION BY USER_ID ORDER BY CALENDAR_DATE
+            RANGE BETWEEN INTERVAL '6 days' PRECEDING AND CURRENT ROW
+        ) AS CALORIES_7DAY_ROLLING_AVG,
+
+        -- 7-Day Rolling Stddev (needed for z-scores)
+        STDDEV(TOTALHOURSASLEEP) OVER (
+            PARTITION BY USER_ID ORDER BY CALENDAR_DATE
+            RANGE BETWEEN INTERVAL '6 days' PRECEDING AND CURRENT ROW
+        ) AS SLEEP_7DAY_ROLLING_STDDEV,
+        STDDEV(TOTALSTEPS) OVER (
+            PARTITION BY USER_ID ORDER BY CALENDAR_DATE
+            RANGE BETWEEN INTERVAL '6 days' PRECEDING AND CURRENT ROW
+        ) AS STEPS_7DAY_ROLLING_STDDEV,
+        STDDEV(CALORIES) OVER (
+            PARTITION BY USER_ID ORDER BY CALENDAR_DATE
+            RANGE BETWEEN INTERVAL '6 days' PRECEDING AND CURRENT ROW
+        ) AS CALORIES_7DAY_ROLLING_STDDEV,
+
+        -- Regression
+        REGR_R2(TOTALMINUTESASLEEP, TOTALSTEPS) OVER (PARTITION BY USER_ID) AS STEPS_SLEEP_RSQUARED
+    FROM temp_table
+)
+SELECT
+    *,
+    -- Z-Scores: how does today compare to the rolling 7-day window?
+    (TOTALSTEPS - STEPS_7DAY_ROLLING_AVG) / NULLIF(STEPS_7DAY_ROLLING_STDDEV, 0) AS STEPS_ZSCORE,
+    (TOTALHOURSASLEEP - SLEEP_7DAY_ROLLING_AVG) / NULLIF(SLEEP_7DAY_ROLLING_STDDEV, 0) AS SLEEP_ZSCORE,
+    (CALORIES - CALORIES_7DAY_ROLLING_AVG) / NULLIF(CALORIES_7DAY_ROLLING_STDDEV, 0) AS CALORIES_ZSCORE
+
+FROM rolling_stats
+ORDER BY CALENDAR_DATE DESC, USER_ID;
+SELECT * FROM WHOOP_HEALTH_DB.ANALYSIS_VIEWS.DAILY_USER_PERFORMANCE
+
+
+
+-- 2a. Create 2 new views for the Pie Charts on the Dashboard Page
+CREATE OR REPLACE VIEW ANALYSIS_VIEWS.ACTIVITY_BREAKDOWN AS                                      
+SELECT 
+    USER_ID,
+    CALENDAR_DATE,
+    'Very Active' AS ACTIVITY_TYPE,
+    VERYACTIVEMINUTES AS MINUTES
+FROM ANALYSIS_VIEWS.DAILY_USER_PERFORMANCE
+WHERE VERYACTIVEMINUTES IS NOT NULL
+UNION ALL
+SELECT 
+    USER_ID,
+    CALENDAR_DATE,
+    'Fairly Active' AS ACTIVITY_TYPE,
+    FAIRLYACTIVEMINUTES AS MINUTES
+FROM ANALYSIS_VIEWS.DAILY_USER_PERFORMANCE
+WHERE FAIRLYACTIVEMINUTES IS NOT NULL
+UNION ALL
+SELECT 
+    USER_ID,
+    CALENDAR_DATE,
+    'Lightly Active' AS ACTIVITY_TYPE,
+    LIGHTLYACTIVEMINUTES AS MINUTES
+FROM ANALYSIS_VIEWS.DAILY_USER_PERFORMANCE
+WHERE LIGHTLYACTIVEMINUTES IS NOT NULL;
+
+-- 2b. Sleep Donut Chart
+CREATE OR REPLACE VIEW ANALYSIS_VIEWS.SLEEP_BREAKDOWN AS
+SELECT 
+    USER_ID,
+    CALENDAR_DATE,
+    'Asleep' AS SLEEP_TYPE,
+    TOTALMINUTESASLEEP AS MINUTES
+FROM ANALYSIS_VIEWS.DAILY_USER_PERFORMANCE
+WHERE TOTALMINUTESASLEEP IS NOT NULL
+UNION ALL
+SELECT
+    USER_ID,
+    CALENDAR_DATE,
+    'Awake in Bed' AS SLEEP_TYPE,
+    TOTALMINUTESAWAKE AS MINUTES
+FROM ANALYSIS_VIEWS.DAILY_USER_PERFORMANCE
+WHERE TOTALMINUTESAWAKE IS NOT NULL;
+
+  
+-- =============================================================================
+-- 3. Weekday View of Steps & Sleep
+-- Purpose: To be able to plot Weekday chart
+-- Goal: Demonstrate ability to use Window Functions
+-- =============================================================================
+
+CREATE OR REPLACE VIEW ANALYSIS_VIEWS.USER_WEEKLY_DASHBOARD AS
+WITH DAY_OF_WEEK_STATS AS (
+    SELECT
+        USER_ID,
+        DAYOFWEEK(CALENDAR_DATE) as DOW,
+        AVG(TOTALSTEPS) as AVG_STEPS,
+        AVG(TOTALMINUTESASLEEP)/60 as AVG_SLEEP
+    FROM ANALYSIS_VIEWS.DAILY_USER_PERFORMANCE
+    GROUP BY USER_ID, DOW
+)
+-- Steps
+SELECT
+    USER_ID,
+    'STEPS' AS METRIC_TYPE,
+    MAX(CASE WHEN DOW = 1 THEN AVG_STEPS END) AS MON,
+    MAX(CASE WHEN DOW = 2 THEN AVG_STEPS END) AS TUE,
+    MAX(CASE WHEN DOW = 3 THEN AVG_STEPS END) AS WED,
+    MAX(CASE WHEN DOW = 4 THEN AVG_STEPS END) AS THU,
+    MAX(CASE WHEN DOW = 5 THEN AVG_STEPS END) AS FRI,
+    MAX(CASE WHEN DOW = 6 THEN AVG_STEPS END) AS SAT,
+    MAX(CASE WHEN DOW = 0 THEN AVG_STEPS END) AS SUN
+FROM DAY_OF_WEEK_STATS
+GROUP BY USER_ID, METRIC_TYPE
+
+UNION ALL -- make 2nd row for each USER
+
+-- Sleep
+SELECT
+    USER_ID,
+    'SLEEP_HOURS' AS METRIC_TYPE,
+    MAX(CASE WHEN DOW = 1 THEN AVG_SLEEP END) AS MON,
+    MAX(CASE WHEN DOW = 2 THEN AVG_SLEEP END) AS TUE,
+    MAX(CASE WHEN DOW = 3 THEN AVG_SLEEP END) AS WED,
+    MAX(CASE WHEN DOW = 4 THEN AVG_SLEEP END) AS THU,
+    MAX(CASE WHEN DOW = 5 THEN AVG_SLEEP END) AS FRI,
+    MAX(CASE WHEN DOW = 6 THEN AVG_SLEEP END) AS SAT,
+    MAX(CASE WHEN DOW = 0 THEN AVG_SLEEP END) AS SUN
+FROM DAY_OF_WEEK_STATS
+GROUP BY USER_ID, METRIC_TYPE;
+
+-- =============================================================================
+-- 4. Health Blood Markers - for Advanced Labs-like data
+-- Purpose: Advanced Querying and calculate Z-scores to show when a blood marker
+--      is out of a normal range (would be used in Advanced Labs)
+--      Currently assuming the data represents a random selection of healthy adults
+--      [Already flawed because this is ICU data, and also blood markers "range" 
+--      wouldn't follow a normal distribution necessarily]
+-- Goal: Use CTE to create mean and standard deviation, then calculate Z-score in 
+--      new View
+-- =============================================================================
+
+CREATE OR REPLACE VIEW ANALYSIS_VIEWS.MIMIC_CLINICAL_INSIGHTS AS                                 
+-- Get each subject's most recent date PER BIOMARKER      
+WITH Recent_Window AS (                                                                       
+    SELECT
+        *,
+        MAX(TO_DATE(CHARTTIME, 'YYYY/MM/DD')) OVER (PARTITION BY SUBJECT_ID, ITEMID) AS LATEST_DATE
+    FROM WHOOP_HEALTH_DB.RAW_HEALTH_DATA.MIMIC_LAB_EVENTS_RAW
+    WHERE ITEMID IN (50931, 51222, 51265, 51282, 50983) -- BioMarkers belwo
+      AND VALUENUM IS NOT NULL
+),
+Statistics_Calc AS (
+    -- Calculate stats for each ItemID across ALL time (full history)
+    SELECT
+        ITEMID,
+        AVG(VALUENUM) as global_avg,
+        STDDEV(VALUENUM) as global_stddev
+    FROM WHOOP_HEALTH_DB.RAW_HEALTH_DATA.MIMIC_LAB_EVENTS_RAW
+    GROUP BY ITEMID
+)
+SELECT
+    l.SUBJECT_ID,
+    TO_DATE(l.CHARTTIME, 'YYYY/MM/DD') AS DATE,
+    l.LATEST_DATE,
+    l.ITEMID,
+    d.LABEL as Bio_Marker,
+    l.VALUENUM,
+    -- Calculate Z-Score (against full history benchmarks)
+    (l.VALUENUM - s.global_avg) / NULLIF(s.global_stddev, 0) AS z_score,
+
+    CASE
+        WHEN (l.VALUENUM - s.global_avg) / NULLIF(s.global_stddev, 0) > 1 THEN 'Above Normal'    
+        WHEN (l.VALUENUM - s.global_avg) / NULLIF(s.global_stddev, 0) < -1 THEN 'Below Normal'   
+        ELSE 'Optimal Range'
+    END AS PERFORMANCE_RANGE,
+
+    (global_avg + global_stddev) AS NORMAL_HIGH,
+    (global_avg - global_stddev) AS NORMAL_LOW
+
+FROM Recent_Window l
+JOIN Statistics_Calc s ON l.ITEMID = s.ITEMID
+LEFT JOIN WHOOP_HEALTH_DB.RAW_HEALTH_DATA.MIMIC_LAB_ITEMS_RAW d ON l.ITEMID = d.ITEMID
+WHERE TO_DATE(l.CHARTTIME, 'YYYY/MM/DD') >= DATEADD('day', -30, l.LATEST_DATE); 
+
+-- BIO MARKERS
+    -- GLUCOSE == 50931
+    -- HEMOGLOBIN == 51222
+    -- PLATELET COUNT == 51265
+    -- RETICULOCYTE COUNT == 51282
+    -- SODIUM == 50983
+
+
+
+
+
