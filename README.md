@@ -11,7 +11,7 @@ Demonstrate ability to use **Snowflake**, **SQL**, and **Looker** with WHOOP-lik
 * Advanced querying & table joins
 * Creating robust **VIEWS** and **CTEs**
 * Statistical modeling using **Window Functions**
-* **Strategic** Analysis and **Product** Feature Recommendations
+* Clean **Visualizations**, **Strategic** Analysis, and **Product** Feature Recommendations
 
 
 ### **TECHNICAL STACK:**
