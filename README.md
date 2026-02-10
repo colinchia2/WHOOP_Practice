@@ -8,7 +8,9 @@ I will make use of advanced querying, table joins, creating VIEWS, CTEs, and Win
 
 I have downloaded free FitBit data on sleep and steps from 30 random users, as well as
 a separate blood collection database with 100 patients from Beth Israel Deaconess Medical Center
+    
     FitBit Source: https://www.kaggle.com/datasets/arashnic/fitbit?resource=download-directory
+    
     MIMIC-III Source: https://physionet.org/content/mimiciii-demo/1.4/
 
 The link to the presentation is here: https://lookerstudio.google.com/reporting/50997089-7ad1-4bc7-a9ba-6e5079ae0eb7/page/p_fuh1c2mt0d
