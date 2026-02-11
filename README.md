@@ -1,7 +1,8 @@
 # WHOOP Practice
-**Live Looker Studio Dashboard:** <a href="https://lookerstudio.google.com/reporting/50997089-7ad1-4bc7-a9ba-6e5079ae0eb7/page/p_fuh1c2mt0d" target="_blank">Interactive Looker Studio Report</a>
+**Live Looker Studio Dashboard:** [View Interactive Report](https://lookerstudio.google.com/reporting/50997089-7ad1-4bc7-a9ba-6e5079ae0eb7/page/p_fuh1c2mt0d)
 <br>
-**Snowflake Script:** <a href="https://github.com/colinchia2/WHOOP_Practice/blob/main/Snowflake_Script" target="_blank">View SQL Script</a>
+**Snowflake Script:** [View SQL Script](https://github.com/colinchia2/WHOOP_Practice/blob/main/Snowflake_Script)
+
 ---
 
 ### **PROJECT:**
@@ -21,7 +22,7 @@ Demonstrate ability to use **Snowflake**, **SQL**, and **Looker** with WHOOP-lik
 
 ### **DATA SOURCES:**
 * **FitBit Data:** Sleep and activity wearable tracking from 30 users
-    * <a href="https://www.kaggle.com/datasets/arashnic/fitbit?resource=download-directory" target="_blank">Source: Kaggle FitBit Dataset</a>
+    * [Source: Kaggle FitBit Dataset](https://www.kaggle.com/datasets/arashnic/fitbit?resource=download-directory)
 * **MIMIC-III Data:** Clinical blood collection database from Beth Israel Deaconess Medical Center ICU
     * [Source: PhysioNet MIMIC-III Demo](https://physionet.org/content/mimiciii-demo/1.4/)
 
