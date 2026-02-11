@@ -12,7 +12,7 @@ DATE: 02-10-2026
 
 -- 0. Select Correct Warehouses
 -- I have already defined the Warehouse, Database, and following Schemas and 
--- manually uploaded the CSVs
+-- manually uploaded the CSVs and cleaned data of Null rows
 USE WAREHOUSE WHOOP_PRACTICE_WH;
 -- USE DATABASE WHOOP_HEALTH_DB;
 -- USE SCHEMA RAW_HEALTH_DATA;
