@@ -16,7 +16,19 @@ DATE: 02-10-2026
 USE WAREHOUSE WHOOP_PRACTICE_WH;
 -- USE DATABASE WHOOP_HEALTH_DB;
 -- USE SCHEMA RAW_HEALTH_DATA;
+--      FITBIT_ACTIVITY_RAW
+--      FITBIT_SLEEP_RAW
+--      MIMIC_LAB_EVENTS_RAW
+--      MIMIC_LAB_ITEMS_RAW
 -- USE SCHEMA ANALYSIS_VIEWS;
+--      FITBIT_USER_SUMMARY
+--      FITBIT_FEATURE_USAGE
+--      HISTOGRAM_DISTS
+--      DAILY_USER_PERFORMANCE (main view used)
+--      ACTIVITY_BREAKDOWN
+--      SLEEP_BREAKDOWN
+--      USER_WEEKLY_DASHBOARD
+--      MIMIC_CLINICAL_INSIGHTS
 
 -- The following sections show the code I've written to build "Views"
 -- These views are then linked to Looker such that they are consisntly live
@@ -82,8 +94,112 @@ SELECT
 FROM ANALYSIS_VIEWS.FITBIT_USER_SUMMARY;
 SELECT * FROM WHOOP_HEALTH_DB.ANALYSIS_VIEWS.FITBIT_FEATURE_USAGE;
 
+
 -- =============================================================================
--- 2. FitBit Steps, Calories, and Sleep Time Series
+-- 2. FitBit Histogram Distribution on Steps, Calories, & Sleep (Total Population)
+-- Purpose: Calculate total population distribution  metrics for all FitBit users 
+-- SQL Logic: Use of CTE and statistical functions 
+-- =============================================================================
+
+CREATE OR REPLACE VIEW WHOOP_HEALTH_DB.ANALYSIS_VIEWS.HISTOGRAM_DISTS AS                           
+WITH step_stats AS (
+    SELECT
+        AVG(TOTALSTEPS) AS mean_val,
+        STDDEV(TOTALSTEPS) AS stddev_val,
+        MAX(TOTALSTEPS) AS max_val,
+        COUNT(TOTALSTEPS) AS count_n,
+    FROM WHOOP_HEALTH_DB.RAW_HEALTH_DATA.FITBIT_ACTIVITY_RAW
+), cal_stats AS (
+    SELECT
+        AVG(CALORIES) AS mean_val,
+        STDDEV(CALORIES) AS stddev_val,
+        MAX(CALORIES) AS max_val,
+        COUNT(CALORIES) AS count_n,
+    FROM WHOOP_HEALTH_DB.RAW_HEALTH_DATA.FITBIT_ACTIVITY_RAW
+), sleep_stats AS (
+    SELECT
+        AVG(TOTALMINUTESASLEEP)/60 AS mean_val,
+        STDDEV(TOTALMINUTESASLEEP)/60 AS stddev_val,
+        MAX(TOTALMINUTESASLEEP)/60 AS max_val,
+        COUNT(TOTALMINUTESASLEEP) AS count_n,
+    FROM WHOOP_HEALTH_DB.RAW_HEALTH_DATA.FITBIT_SLEEP_RAW
+), buckets AS (
+    SELECT SEQ4() AS n
+    FROM TABLE(GENERATOR(ROWCOUNT => 100))
+), step_data AS (
+    SELECT
+        FLOOR(TOTALSTEPS / 2000) * 2000 AS bucket,
+        COUNT(*) AS num_days
+    FROM WHOOP_HEALTH_DB.RAW_HEALTH_DATA.FITBIT_ACTIVITY_RAW
+    GROUP BY bucket
+), cal_data AS (
+    SELECT
+        FLOOR(CALORIES / 200) * 200 AS bucket,
+        COUNT(*) AS num_days
+    FROM WHOOP_HEALTH_DB.RAW_HEALTH_DATA.FITBIT_ACTIVITY_RAW
+    GROUP BY bucket
+), sleep_data AS (
+    SELECT
+        FLOOR((TOTALMINUTESASLEEP/60) / 0.5) * 0.5 AS bucket,
+        COUNT(*) AS num_days
+    FROM WHOOP_HEALTH_DB.RAW_HEALTH_DATA.FITBIT_SLEEP_RAW
+    GROUP BY bucket
+)
+-- Steps Section
+SELECT
+    'Steps' AS metric_type,
+    b.n * 2000 as bucket_start,
+    CONCAT(b.n * 2000, ' - ', b.n * 2000 + 1999) AS data_range,
+    COALESCE(d.num_days, 0) AS num_days,
+    ROUND(s.mean_val, 0) AS mean_val,
+    ROUND(s.stddev_val, 0) AS stddev_val,    
+    ROUND(s.mean_val - s.stddev_val, 0) AS minus_1_std,
+    ROUND(s.mean_val + s.stddev_val, 0) AS plus_1_std
+FROM buckets b
+LEFT JOIN step_data d 
+    ON b.n * 2000 = d.bucket
+CROSS JOIN step_stats s
+WHERE b.n * 2000 <= s.max_val
+
+UNION ALL
+
+-- Calories Section
+SELECT
+    'Calories' AS metric_type,
+    b.n * 200 as bucket_start,
+    CONCAT(b.n * 200, ' - ', b.n * 200 + 199) AS data_range,
+    COALESCE(d.num_days, 0) AS num_days,
+    ROUND(s.mean_val, 0) AS mean_val,
+    ROUND(s.stddev_val, 0) AS stddev_val,  
+    ROUND(s.mean_val - s.stddev_val, 0) AS minus_1_std,
+    ROUND(s.mean_val + s.stddev_val, 0) AS plus_1_std
+FROM buckets b
+LEFT JOIN cal_data d 
+    ON b.n * 200 = d.bucket
+CROSS JOIN cal_stats s
+WHERE b.n * 200 <= s.max_val
+
+UNION ALL
+
+-- Sleep Section
+SELECT
+    'Sleep' AS metric_type,
+    b.n * 0.5 as bucket_start,
+    CONCAT(b.n * 0.5, ' - ', b.n * 0.5 + 0.49) AS data_range,
+    COALESCE(d.num_days, 0) AS num_days,
+    ROUND(s.mean_val, 0) AS mean_val,
+    ROUND(s.stddev_val, 0) AS stddev_val,  
+    ROUND(s.mean_val - s.stddev_val, 0) AS minus_1_std,
+    ROUND(s.mean_val + s.stddev_val, 0) AS plus_1_std
+FROM buckets b
+LEFT JOIN sleep_data d 
+    ON b.n * 0.5 = d.bucket
+CROSS JOIN sleep_stats s
+WHERE b.n * 0.5 <= s.max_val;
+SELECT * FROM WHOOP_HEALTH_DB.ANALYSIS_VIEWS.HISTOGRAM_DISTS;
+
+-- =============================================================================
+-- 3. FitBit Steps, Calories, and Sleep Time Series
 -- Purpose: Create time series view of daily health markers for Looker Studio dashboard
 --      This will be our main table in Looker so will add extra analysis in here
 -- SQL Logic: Outer Join disparate ID & date columns into a single CALENDAR_DATE, and
@@ -177,8 +293,12 @@ goal_diffs_rolling_stats AS (
         ) AS CALORIES_7DAY_ROLLING_STDDEV,
     
         -- Regression R^2 Value between Sleep and Steps by User ID
+        -- Population-level R^2 
+        REGR_R2(TOTALMINUTESASLEEP, TOTALSTEPS) OVER () AS STEPS_SLEEP_RSQUARED_TOTAL,
+        REGR_R2(VERYACTIVEMINUTES, TOTALSTEPS) OVER () AS ACTIVITY_SLEEP_RSQUARED_TOTAL,
         -- Will place a regression line via Looker Studio
-        REGR_R2(TOTALMINUTESASLEEP, TOTALSTEPS) OVER (PARTITION BY USER_ID) AS STEPS_SLEEP_RSQUARED
+        REGR_R2(TOTALMINUTESASLEEP, TOTALSTEPS) OVER (PARTITION BY USER_ID) AS STEPS_SLEEP_RSQUARED_USER
+
     FROM base_metrics
 )
 SELECT
@@ -192,35 +312,47 @@ ORDER BY CALENDAR_DATE DESC, USER_ID;
 SELECT * FROM WHOOP_HEALTH_DB.ANALYSIS_VIEWS.DAILY_USER_PERFORMANCE;
 
 -- =================================
--- 2a. FitBit Activity Breakdown Pie Chart 
+-- 3a. FitBit Activity Breakdown Pie Chart 
 -- Create a singular view for the Activity Breakdown Pie Charts on the Dashboard Page
 CREATE OR REPLACE VIEW ANALYSIS_VIEWS.ACTIVITY_BREAKDOWN AS                                      
 SELECT 
-    USER_ID,
-    CALENDAR_DATE,
+    ID,
+    ACTIVITYDATE,
     'Very Active' AS ACTIVITY_TYPE,
-    VERYACTIVEMINUTES AS MINUTES
-FROM ANALYSIS_VIEWS.DAILY_USER_PERFORMANCE
+    VERYACTIVEMINUTES AS MINUTES,
+    30 as RECOMMENDED_MINUTES
+FROM WHOOP_HEALTH_DB.RAW_HEALTH_DATA.FITBIT_ACTIVITY_RAW
 WHERE VERYACTIVEMINUTES IS NOT NULL
 UNION ALL
 SELECT 
-    USER_ID,
-    CALENDAR_DATE,
+    ID,
+    ACTIVITYDATE,
     'Fairly Active' AS ACTIVITY_TYPE,
-    FAIRLYACTIVEMINUTES AS MINUTES
-FROM ANALYSIS_VIEWS.DAILY_USER_PERFORMANCE
+    FAIRLYACTIVEMINUTES AS MINUTES,
+    NULL
+FROM WHOOP_HEALTH_DB.RAW_HEALTH_DATA.FITBIT_ACTIVITY_RAW
 WHERE FAIRLYACTIVEMINUTES IS NOT NULL
 UNION ALL
 SELECT 
-    USER_ID,
-    CALENDAR_DATE,
+    ID,
+    ACTIVITYDATE,
     'Lightly Active' AS ACTIVITY_TYPE,
-    LIGHTLYACTIVEMINUTES AS MINUTES
-FROM ANALYSIS_VIEWS.DAILY_USER_PERFORMANCE
-WHERE LIGHTLYACTIVEMINUTES IS NOT NULL;
+    LIGHTLYACTIVEMINUTES AS MINUTES,
+    NULL
+FROM WHOOP_HEALTH_DB.RAW_HEALTH_DATA.FITBIT_ACTIVITY_RAW
+WHERE LIGHTLYACTIVEMINUTES IS NOT NULL
+UNION ALL
+SELECT 
+    ID,
+    ACTIVITYDATE,
+    'Sedentary' AS ACTIVITY_TYPE,
+    SEDENTARYMINUTES AS MINUTES,
+    NULL
+FROM WHOOP_HEALTH_DB.RAW_HEALTH_DATA.FITBIT_ACTIVITY_RAW
+WHERE SEDENTARYMINUTES IS NOT NULL;
 
 -- =================================
--- 2b. FitBit Sleep Breakdown Pie Chart 
+-- 3b. FitBit Sleep Breakdown Pie Chart 
 -- Create a singular view for the Sleep Breakdown Pie Charts on the Dashboard Page
 CREATE OR REPLACE VIEW ANALYSIS_VIEWS.SLEEP_BREAKDOWN AS
 SELECT 
@@ -239,9 +371,37 @@ SELECT
 FROM ANALYSIS_VIEWS.DAILY_USER_PERFORMANCE
 WHERE TOTALMINUTESAWAKE IS NOT NULL;
 
-  
+
+-- =================================
+-- 3c. FitBit Segmentation by Step Count 
+-- Create a singular view for the Sleep Breakdown Pie Charts on the Dashboard Page
+CREATE OR REPLACE VIEW WHOOP_HEALTH_DB.ANALYSIS_VIEWS.ACTIVITY_SLEEP_TRADEOFF AS
+SELECT
+    CASE
+        WHEN a.TOTALSTEPS >= 10000 THEN 'High (10K+ steps)'
+        WHEN a.TOTALSTEPS >= 5000  THEN 'Medium (5K-10K)'
+        WHEN a.TOTALSTEPS > 0      THEN 'Low (<5K steps)'
+        ELSE 'No steps'
+    END AS activity_level,
+    COUNT(*) AS num_days,
+    ROUND(AVG(a.TOTALSTEPS), 0) AS avg_steps,
+    ROUND(AVG(a.CALORIES), 0) AS avg_calories,
+    ROUND(AVG(s.TOTALMINUTESASLEEP) / 60, 1) AS avg_sleep_hrs,
+    ROUND(AVG(a.VERYACTIVEMINUTES), 0) AS avg_very_active_mins,
+    ROUND(AVG(a.FAIRLYACTIVEMINUTES), 0) AS avg_fairly_active_mins,
+    ROUND(AVG(a.LIGHTLYACTIVEMINUTES), 0) AS avg_lightly_active_mins,
+    ROUND(AVG(a.SEDENTARYMINUTES), 0) AS avg_sedentary
+FROM WHOOP_HEALTH_DB.RAW_HEALTH_DATA.FITBIT_ACTIVITY_RAW a
+JOIN WHOOP_HEALTH_DB.RAW_HEALTH_DATA.FITBIT_SLEEP_RAW s
+    ON a.ID = s.ID
+    AND a.ACTIVITYDATE = s.CORRECT_DATE
+GROUP BY activity_level;
+SELECT * FROM WHOOP_HEALTH_DB.ANALYSIS_VIEWS.ACTIVITY_SLEEP_TRADEOFF;
+
+
+    
 -- =============================================================================
--- 3. Weekday View of Steps, Calories, & Sleep
+-- 4. Weekday View of Steps, Calories, & Sleep
 -- Purpose: Calculate Weekday avg baseline metrics for all FitBit users and store in
 --      a reference View to see if effort varies by weekday
 -- Goal: Demonstrate ability to use Window Functions
@@ -307,7 +467,7 @@ SELECT * FROM WHOOP_HEALTH_DB.ANALYSIS_VIEWS.USER_WEEKLY_DASHBOARD;
 
 
 -- =============================================================================
--- 4. Health Blood Markers: for Advanced Labs-like data
+-- 5. Health Blood Markers: for Advanced Labs-like data
 -- Purpose: Advanced Querying and calculate Z-scores to show when a blood marker
 --      is out of a normal range (would be used in Advanced Labs)
 --      Currently assuming the data represents a random selection of healthy adults
